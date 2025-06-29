@@ -573,13 +573,13 @@
                 const formData = new FormData(e.target);
                 const allTags = groupedAvailableTags.flatMap(g => g.tags);
                 const selectedTagObjects = Array.from(currentSelectedTags).map(tagId => allTags.find(t => t.id === tagId)).filter(Boolean);
-                
+
                 const ownerName = document.getElementById('selected-card-owner-name').textContent;
                 const owner = USERS.find(u => u.name === ownerName);
                 const newOwnerId = owner ? owner.id : currentUserId;
 
                 const cardData = {
-                    title: formData.get('card-title') || '無標題卡片',
+                    title: formData.get('card-title') || '無標題卡片xx',
                     date: formData.get('call-date'),
                     customer: { name: formData.get('customer-name') || '未命名', company: formData.get('company-name'), region: formData.get('customer-region') },
                     tags: selectedTagObjects,
