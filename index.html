@@ -1,0 +1,1564 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>進線看板 (可轉移卡片)</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 SortableJS 用於拖曳功能 -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <!-- 引入 Google Fonts 的 Inter 字體 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- START: PWA and Fullscreen Meta Tags -->
+    <meta name="theme-color" content="#ffffff">
+    <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22%E9%80%B2%E7%B7%9A%E7%9C%8B%E6%9D%BF%22%2C%22short_name%22%3A%22%E7%9C%8B%E6%9D%BF%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23f1f5f9%22%2C%22theme_color%22%3A%22%23ffffff%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A//placehold.co/192x192/3b82f6/ffffff%3Ftext%3DK%22%2C%22type%22%3A%22image/png%22%2C%22sizes%22%3A%22192x192%22%7D%2C%7B%22src%22%3A%22https%3A//placehold.co/512x512/3b82f6/ffffff%3Ftext%3DK%22%2C%22type%22%3A%22image/png%22%2C%22sizes%22%3A%22512x512%22%7D%5D%7D">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="進線看板">
+    <link rel="apple-touch-icon" href="https://placehold.co/180x180/3b82f6/ffffff?text=看板">
+    <!-- END: PWA and Fullscreen Meta Tags -->
+
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+        }
+        html { scroll-behavior: smooth; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .card-image { max-height: 150px; width: 100%; object-fit: cover; border-radius: 0.25rem; }
+
+        .sortable-ghost { opacity: 0.4; background: #c8ebfb; }
+        .sortable-chosen { cursor: grabbing; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        
+        .list-drag-handle, .settings-drag-handle { cursor: grab; }
+        .list-locked .list-drag-handle, .item-locked .settings-drag-handle { cursor: not-allowed; }
+        
+        .modal-overlay { transition: opacity 0.2s ease-in-out; }
+        .modal-container { transition: transform 0.2s ease-in-out, opacity 0.2s ease-in-out; }
+        
+        .tag-pill { transition: all 0.2s ease-in-out; border-width: 1px; }
+        .color-dot {
+            width: 1.5rem; height: 1.5rem; border-radius: 9999px;
+            border: 2px solid transparent; cursor: pointer;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+        }
+        .color-dot.selected { border-color: #3b82f6; }
+
+        /* Toast Notification Style */
+        .toast-notification {
+            transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+        }
+        /* Styles for drag-drop pairing */
+        .channel-item {
+            cursor: grab;
+        }
+        .user-drop-zone.sortable-ghost {
+            background-color: #dbeafe; /* light blue */
+            border-style: dashed;
+        }
+
+    </style>
+</head>
+<body class="bg-gray-100 h-screen overflow-hidden flex flex-col">
+
+    <!-- 頂部導航欄 -->
+    <header class="bg-white shadow-md p-2 flex items-center justify-between flex-shrink-0 z-20 gap-2">
+        <div class="flex items-center space-x-2 md:space-x-4 flex-shrink-0">
+            <div class="relative" id="user-selector-container">
+                <button id="user-menu-button" type="button" class="inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-3 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">
+                    <div class="text-left">
+                        <div id="selected-user-region" class="text-xs text-blue-600 font-bold"></div>
+                        <div id="selected-user-name" class="font-semibold"></div>
+                    </div>
+                    <svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                </button>
+                <div id="user-menu" class="origin-top-left absolute left-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 hidden z-30">
+                    <div class="py-1" role="menu"></div>
+                </div>
+            </div>
+            <h1 class="text-xl font-bold text-gray-800 hidden md:block">進線看板</h1>
+             <button id="add-card-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3 rounded-md text-sm inline-flex items-center ml-2 flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 md:mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                <span class="hidden md:inline">新增卡片</span>
+            </button>
+        </div>
+        <div class="flex items-center space-x-2 flex-grow justify-end">
+            <!-- Search Bar -->
+            <div id="search-container" class="relative">
+                <div id="search-input-container" class="w-10 md:w-52 h-10 transition-all duration-300 ease-in-out flex items-center bg-gray-100 rounded-full">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" /></svg>
+                    </div>
+                    <input type="text" id="search-input" placeholder="搜尋..." class="w-full h-full pl-10 pr-4 text-sm bg-transparent focus:outline-none">
+                </div>
+                <div id="search-results" class="absolute mt-1 w-full right-0 md:w-96 bg-white rounded-md shadow-lg z-30 hidden max-h-80 overflow-y-auto"></div>
+            </div>
+            <button id="settings-btn" class="text-gray-500 hover:text-gray-800 p-2 rounded-full hover:bg-gray-100 flex-shrink-0"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></button>
+        </div>
+    </header>
+
+    <main id="board-container" class="flex-grow overflow-x-auto overflow-y-hidden">
+        <div id="lists-wrapper" class="h-full w-max flex p-4 gap-4"></div>
+    </main>
+
+    <footer id="nav-dots" class="py-3 flex justify-center items-center space-x-2 md:hidden"></footer>
+
+    <!-- Card Form Modal -->
+    <div id="card-form-modal" class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-40 hidden opacity-0">
+        <form id="card-form" class="modal-container bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-full flex flex-col transform scale-95 opacity-0">
+            <div class="flex justify-between items-center p-4 border-b">
+                <h3 id="card-form-title" class="text-xl font-bold"></h3>
+                <div class="relative" id="card-owner-selector-container">
+                    <button id="card-owner-menu-button" type="button" class="inline-flex items-center justify-center rounded-md border border-gray-300 shadow-sm px-3 py-1 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none">
+                        <div class="text-left">
+                            <div id="selected-card-owner-region" class="text-xs text-gray-500"></div>
+                            <div id="selected-card-owner-name" class="font-semibold"></div>
+                        </div>
+                        <svg class="-mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                    </button>
+                    <div id="card-owner-menu" class="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 hidden z-40">
+                        <div class="py-1" role="menu"></div>
+                    </div>
+                </div>
+                <button id="card-form-close-btn" type="button" class="text-gray-400 hover:text-gray-900 text-3xl leading-none -mt-1 ml-2">&times;</button>
+            </div>
+            <div class="p-6 flex-grow overflow-y-auto space-y-6">
+                <div class="p-4 border rounded-lg"><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label for="call-date" class="block text-sm font-medium text-gray-700">來電日期</label><input type="date" id="call-date" name="call-date" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></div><div><label for="customer-region" class="block text-sm font-medium text-gray-700">客戶地區</label><select id="customer-region" name="customer-region" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></select></div><div><label for="customer-name" class="block text-sm font-medium text-gray-700">客戶名稱</label><input type="text" id="customer-name" name="customer-name" placeholder="例如：王大明" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></div><div><label for="company-name" class="block text-sm font-medium text-gray-700">公司名稱</label><input type="text" id="company-name" name="company-name" placeholder="例如：ABC 科技" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></div></div></div>
+                <div class="p-4 border rounded-lg"><div class="space-y-4"><div><label class="block text-sm font-medium text-gray-700">標籤</label><div id="tag-selector-container" class="relative mt-1"><div id="selected-tags-display-wrapper" class="relative cursor-pointer"><div id="selected-tags-display" class="flex flex-wrap gap-2 p-2 border border-gray-300 rounded-md min-h-[42px]"><span class="text-gray-400 self-center">未選擇標籤</span></div><div class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none"><svg class="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M10 3a.75.75 0 01.53.22l3.5 3.5a.75.75 0 01-1.06 1.06L10 4.81 7.03 7.78a.75.75 0 01-1.06-1.06l3.5-3.5A.75.75 0 0110 3zm-3.72 9.53a.75.75 0 011.06 0L10 15.19l2.97-2.97a.75.75 0 111.06 1.06l-3.5 3.5a.75.75 0 01-1.06 0l-3.5-3.5a.75.75 0 010-1.06z" clip-rule="evenodd" /></svg></div></div><div id="tag-options-container" class="absolute z-10 mt-1 w-full rounded-md bg-white shadow-lg border hidden"></div></div></div><div><label for="card-title" class="block text-sm font-medium text-gray-700">卡片標題</label><input type="text" id="card-title" name="card-title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></div><div><label for="card-description" class="block text-sm font-medium text-gray-700">附註</label><textarea id="card-description" name="card-description" rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"></textarea></div></div></div>
+                <div class="p-4 border rounded-lg"><div class="space-y-4"><div><label class="block text-sm font-medium text-gray-700 mb-1">互動紀錄</label><div id="comment-history" class="space-y-4 mt-2 max-h-48 overflow-y-auto pr-2"></div></div><div id="comment-input-area" class="border-t pt-4 mt-4"><div id="new-comment-previews" class="flex items-center gap-2 flex-wrap mb-2"></div><div class="flex items-center gap-2"><label for="comment-file-upload" class="cursor-pointer text-gray-500 hover:text-gray-700 p-2 rounded-full hover:bg-gray-200"><svg class="w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3.375 3.375 0 1116.5 7.372L5.555 18.35m0 0l3.172-3.172m-3.172 3.172l3.172 3.172" /></svg><input id="comment-file-upload" type="file" class="sr-only" multiple></label><input type="text" id="comment-input" placeholder="新增一則留言..." class="flex-grow block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"><button type="button" id="send-comment-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md">送出</button></div></div></div></div>
+                <div class="p-4 border rounded-lg"><h4 class="font-semibold text-base mb-2">近期活動</h4><div class="text-sm text-gray-500">此處將顯示卡片活動紀錄...</div></div>
+            </div>
+            <div class="p-4 border-t flex justify-end"><button type="submit" id="card-form-submit-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md"></button></div>
+        </form>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden opacity-0">
+        <div class="modal-container bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col transform scale-95 opacity-0">
+            <!-- Modal Header -->
+            <div class="flex justify-between items-center p-4 border-b">
+                <h3 class="text-xl font-bold">設定</h3>
+                <button id="settings-close-btn" type="button" class="text-gray-400 hover:text-gray-900 text-3xl leading-none">&times;</button>
+            </div>
+            <!-- Modal Body -->
+            <div class="flex-grow overflow-y-auto">
+                <div class="p-6 space-y-6">
+                    <!-- Tabs -->
+                    <div class="border-b border-gray-200">
+                        <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                            <button id="tab-users" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-blue-500 text-blue-600">使用者</button>
+                            <button id="tab-lists" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">列表</button>
+                            <button id="tab-tags" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">標籤</button>
+                        </nav>
+                    </div>
+                    <!-- Tab Content -->
+                    <div id="tab-content-users">
+                        <h4 class="text-lg font-semibold mb-3">我的 LINE 頻道配對</h4>
+                        <div id="user-channel-pairing-container">
+                            <!-- Drag and Drop UI will be rendered here -->
+                        </div>
+                    </div>
+                    <div id="tab-content-lists" class="hidden">
+                        <h4 class="text-lg font-semibold mb-3">列表順序與標題</h4>
+                        <div id="settings-lists-container" class="space-y-2"></div>
+                        <button id="add-list-btn" class="mt-4 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-md text-sm inline-flex items-center">
+                            <svg class="w-4 h-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                            新增列表
+                        </button>
+                    </div>
+                    <div id="tab-content-tags" class="hidden">
+                         <div id="settings-tags-container" class="space-y-6"></div>
+                    </div>
+                </div>
+            </div>
+            <!-- Modal Footer -->
+            <div class="p-4 border-t flex justify-end bg-gray-50 rounded-b-lg">
+                <button id="settings-done-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md">完成</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirm-modal" class="modal-overlay fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-[110] hidden opacity-0">
+        <div class="modal-container bg-white rounded-lg shadow-xl w-full max-w-sm transform scale-95 opacity-0">
+            <div class="p-6 text-center">
+                <svg class="mx-auto mb-4 w-12 h-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                <h3 id="confirm-modal-title" class="mb-2 text-lg font-normal text-gray-600"></h3>
+                <p id="confirm-modal-text" class="mb-5 text-sm text-gray-500"></p>
+                <button id="confirm-modal-confirm-btn" type="button" class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 font-medium rounded-lg text-sm inline-flex items-center px-5 py-2.5 text-center mr-2">
+                    確定
+                </button>
+                <button id="confirm-modal-cancel-btn" type="button" class="text-gray-500 bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 rounded-lg border border-gray-200 text-sm font-medium px-5 py-2.5 hover:text-gray-900 focus:z-10">
+                    取消
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PWA Install Prompt -->
+    <div id="pwa-install-prompt" class="hidden fixed bottom-4 right-4 left-4 md:left-auto md:max-w-sm bg-gray-800 text-white p-4 rounded-lg shadow-lg z-50 text-sm transform transition-transform duration-300 translate-y-20">
+        <button id="pwa-prompt-close" class="absolute -top-2 -right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center font-bold text-lg">&times;</button>
+        <p id="pwa-prompt-text" class="pr-4 leading-relaxed"></p>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed top-5 right-5 z-[100] space-y-2"></div>
+
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- 全域資料 ---
+            const USERS = [
+                { id: 'u0425', name: '邱創升', region: '北北基宜', lineChannelId: 'ch01' },
+                { id: 'u0333', name: '林先生', region: '北北基桃', lineChannelId: 'ch02' },
+                { id: 'u0221', name: '張小姐', region: '中彰投', lineChannelId: null }
+            ];
+
+            const LINE_CHANNELS = [
+                { id: 'ch01', name: '業務一部通知群' },
+                { id: 'ch02', name: '業務二部通知群' },
+                { id: 'ch03', name: '中區業務通知' },
+                { id: 'ch04', name: '技術支援通知' }
+            ];
+
+            let allCards = [
+                { id: 'card-1', owner: 'u0425', listId: 'list-1', title: '初步設計討論', customer: {name:'林先生', company:'綠能科技', region:'臺北市'}, date: '2025-06-28', tags: [{id: 'tag-2', text: '進線電話', color: 'blue'}], description: '客戶對 A 套餐感興趣，預計下周回訪。', comments: [{id: 'comment-1', author: 'u0425', time: '14:30', text: '已電話聯繫客戶', attachments: []}], attachments: [{name: 'design.jpg', type: 'image/jpeg'}]},
+                { id: 'card-5', owner: 'u0425', listId: 'list-2', title: '報價單製作', customer: {name:'張先生', company:'宏達國際', region:'臺中市'}, date: '2025-06-20', tags: [{id: 'tag-3', text: 'FB', color: 'green'}, {id: 'tag-1', text: '公司官網', color: 'red'}], description: '張先生離職了，目前由江先生接手。', comments: [{id: 'comment-2', author: 'u0425', time: '10:15', text: '已寄送新的報價單'}], attachments: []},
+                { id: 'card-7', owner: 'u0333', listId: 'list-3', title: '專案結案', customer: {name:'王小姐', company:'', region:'臺南市'}, date: '2025-05-23', tags: [{id: 'tag-10', text: '結案', color: 'gray'}], description: '專案順利完成，款項已收。', comments: [], attachments: []}
+            ];
+            let LISTS = [
+                { id: 'list-1', title: '最近更新'},
+                { id: 'list-2', title: '處理中'},
+                { id: 'list-3', title: '已完成'},
+                { id: 'list-4', title: '待封存'}
+            ];
+            
+            let groupedAvailableTags = [
+                { groupName: '來源', tags: [{ id: 'tag-1', text: '公司官網', color: 'red' }, { id: 'tag-2', text: '進線電話', color: 'blue' }, { id: 'tag-3', text: 'FB', color: 'green' }, { id: 'tag-4', text: 'LINE', color: 'purple' }, { id: 'tag-5', text: '官網', color: 'yellow' }, { id: 'tag-6', text: '口碑介紹', color: 'indigo' }, { id: 'tag-11', text: '其他', color: 'gray'}] },
+                { groupName: '狀態', tags: [{ id: 'tag-7', text: '訂金', color: 'pink' }, { id: 'tag-8', text: '一次性100%款項', color: 'orange' }, { id: 'tag-9', text: '尾款', color: 'teal' }, { id: 'tag-10', text: '結案', color: 'gray' }] }
+            ];
+            const tagColors = { 
+                red:    { text: 'text-red-700',    bg: 'bg-red-500',    border: 'border-red-500'    }, 
+                blue:   { text: 'text-blue-700',   bg: 'bg-blue-500',   border: 'border-blue-500'   }, 
+                green:  { text: 'text-green-700',  bg: 'bg-green-500',  border: 'border-green-500'  }, 
+                purple: { text: 'text-purple-700', bg: 'bg-purple-500', border: 'border-purple-500' }, 
+                yellow: { text: 'text-yellow-700', bg: 'bg-yellow-500', border: 'border-yellow-500' }, 
+                indigo: { text: 'text-indigo-700', bg: 'bg-indigo-500', border: 'border-indigo-500' }, 
+                pink:   { text: 'text-pink-700',   bg: 'bg-pink-500',   border: 'border-pink-500'   }, 
+                orange: { text: 'text-orange-700', bg: 'bg-orange-500', border: 'border-orange-500' }, 
+                teal:   { text: 'text-teal-700',   bg: 'bg-teal-500',   border: 'border-teal-500'   }, 
+                gray:   { text: 'text-gray-700',   bg: 'bg-gray-500',   border: 'border-gray-500'   } 
+            };
+            const regions = ["臺北市", "新北市", "桃園市", "臺中市", "臺南市", "高雄市", "基隆市", "新竹市", "嘉義市", "新竹縣", "苗栗縣", "彰化縣", "南投縣", "雲林縣", "嘉義縣", "屏東縣", "宜蘭縣", "花蓮縣", "臺東縣", "澎湖縣", "金門縣", "連江縣"];
+
+            // --- 應用程式狀態 ---
+            let currentUserId = USERS[0].id;
+            let isMobile = window.innerWidth < 768;
+            let isDragging = false;
+            let autoScrollState = { h: 0, v: 0, containerV: null, animationFrameId: null };
+            let currentSelectedTags = new Set();
+            let sortableInstances = [];
+            let newCommentAttachments = [];
+            let editingCardId = null;
+            let lastKnownMobileIndex = 0;
+
+            function renderBoard(options = {}) {
+                const { preserveScroll } = options;
+                const boardContainer = document.getElementById('board-container');
+                let scrollLeftBeforeRender;
+                if (isMobile && preserveScroll && boardContainer) {
+                    scrollLeftBeforeRender = lastKnownMobileIndex * window.innerWidth;
+                }
+
+                const listsWrapper = document.getElementById('lists-wrapper');
+                sortableInstances.forEach(s => s.destroy());
+                sortableInstances = [];
+                if (listsWrapper) listsWrapper.innerHTML = '';
+                const navDotsContainer = document.getElementById('nav-dots');
+                if(navDotsContainer) navDotsContainer.innerHTML = '';
+                
+                const userCards = allCards.filter(card => card.owner === currentUserId);
+
+                LISTS.forEach((listData, index) => {
+                    if (!listData) return;
+                    const cardsInList = userCards.filter(card => card.listId === listData.id);
+                    const listEl = createListElement(listData, cardsInList, index);
+                    if (listsWrapper) listsWrapper.appendChild(listEl);
+                    if (isMobile && navDotsContainer) {
+                        const dot = document.createElement('div');
+                        dot.className = `w-2 h-2 rounded-full transition-colors bg-gray-300`;
+                        navDotsContainer.appendChild(dot);
+                    }
+                });
+                
+                initSortable(); 
+                if (isMobile) {
+                    setupMobileScroll();
+                    if (preserveScroll && boardContainer) {
+                         boardContainer.scrollLeft = scrollLeftBeforeRender;
+                    }
+                }
+            }
+
+            function createListElement(listData, cards, index) {
+                const listEl = document.createElement('div');
+                listEl.className = `list-item flex flex-col h-full bg-gray-200 rounded-lg shadow-sm list-none`;
+                if (index === 0) listEl.classList.add('list-locked');
+                listEl.style.width = isMobile ? `${window.innerWidth - 32}px` : '272px';
+                listEl.dataset.listId = listData.id;
+                
+                const listHeader = document.createElement('div');
+                listHeader.className = 'list-drag-handle p-3 font-bold text-gray-700';
+                listHeader.textContent = listData.title;
+                
+                const cardContainer = document.createElement('div');
+                cardContainer.className = 'card-container flex-grow overflow-y-auto px-2 min-h-[8rem]';
+                
+                if (cards) {
+                    cards.forEach(card => card && cardContainer.appendChild(createCardElement(card)));
+                }
+
+                listEl.appendChild(listHeader);
+                listEl.appendChild(cardContainer);
+                return listEl;
+            }
+
+            function createCardElement(card) {
+                const cardEl = document.createElement('div');
+                cardEl.className = 'card bg-white rounded-md p-3 shadow mb-2 cursor-pointer hover:bg-gray-50 relative';
+                cardEl.dataset.cardId = card.id;
+                const tagsHtml = card.tags && card.tags.length > 0 ? `<div class="flex flex-wrap gap-1 mb-2">${card.tags.map(tag => `<span class="px-2 py-0.5 text-xs font-semibold rounded-full ${tagColors[tag.color]?.bg || tagColors['gray'].bg} text-white">${tag.text}</span>`).join('')}</div>` : '';
+                
+                let customerInfo = `${card.date} - ${card.customer.region} - ${card.customer.name}`;
+                if (card.customer.company) customerInfo += ` (${card.customer.company})`;
+
+                let latestCommentHtml = '';
+                if (card.comments && card.comments.length > 0) {
+                    const latestComment = card.comments[0];
+                    const commentImage = latestComment.attachments && latestComment.attachments.find(att => att.type.startsWith('image/'));
+                    const imageHtml = commentImage ? `<img src="${commentImage.url}" onerror="this.style.display='none'" class="w-full h-auto object-cover rounded-md mb-2">` : '';
+                    latestCommentHtml = `<div class="mt-2 pt-2 border-t border-gray-200">${imageHtml}<p class="text-sm text-gray-600 truncate">${latestComment.text || ''}</p><p class="text-xs text-gray-400 text-right mt-1">${latestComment.time || ''}</p></div>`;
+                }
+
+                cardEl.innerHTML = `${tagsHtml}<p class="text-sm text-gray-500">${customerInfo}</p><p class="font-semibold text-gray-800 my-1">${card.title}</p>${latestCommentHtml}`;
+                cardEl.addEventListener('click', (e) => {
+                    if (!cardEl.classList.contains('sortable-chosen')) openCardFormModal('edit', card.id);
+                });
+                return cardEl;
+            }
+
+            function initSortable() {
+                initListSortable();
+                initCardSortable();
+            }
+
+            function initListSortable() {
+                const listsWrapper = document.getElementById('lists-wrapper');
+                if (isMobile || !listsWrapper) return; 
+                new Sortable(listsWrapper, {
+                    draggable: '.list-item',
+                    handle: '.list-drag-handle', 
+                    filter: '.list-locked',      
+                    preventOnFilter: true,     
+                    animation: 150,
+                    ghostClass: 'sortable-ghost',
+                    onMove: (evt) => evt.related.classList.contains('list-locked') ? false : true,
+                    onEnd: (evt) => {
+                        const oldIndex = evt.oldIndex;
+                        const newIndex = evt.newIndex;
+                        if (oldIndex === newIndex) return;
+                        const [movedList] = LISTS.splice(oldIndex, 1);
+                        if (movedList) {
+                            LISTS.splice(newIndex, 0, movedList);
+                        }
+                    }
+                });
+            }
+
+            function initCardSortable() {
+                document.querySelectorAll('.card-container').forEach(container => {
+                    new Sortable(container, {
+                        group: 'kanban',
+                        animation: 150,
+                        ghostClass: 'sortable-ghost',
+                        chosenClass: 'sortable-chosen',
+                        delay: isMobile ? 200 : 0,
+                        delayOnTouchOnly: true,
+                        scroll: false,
+                        onStart: () => {
+                            isDragging = true;
+                            const boardContainer = document.getElementById('board-container');
+                            if (isMobile && boardContainer) boardContainer.style.scrollSnapType = 'none';
+                            
+                            document.addEventListener('mousemove', handleAutoScroll);
+                            document.addEventListener('touchmove', handleAutoScroll, { passive: false });
+
+                            startAutoScrollLoop();
+                        },
+                        onEnd: (evt) => {
+                            isDragging = false;
+
+                            document.removeEventListener('mousemove', handleAutoScroll);
+                            document.removeEventListener('touchmove', handleAutoScroll, { passive: false });
+
+                            stopAutoScrollLoop();
+                            
+                            const toListId = evt.to.closest('.list-item').dataset.listId;
+                            const cardId = evt.item.dataset.cardId;
+                            const card = findCardById(cardId);
+                            if(card) {
+                                card.listId = toListId;
+                            }
+                            const boardContainer = document.getElementById('board-container');
+                            if (isMobile && boardContainer) boardContainer.style.scrollSnapType = 'x mandatory';
+                        }
+                    });
+                });
+            }
+            
+            function handleAutoScroll(event) {
+                if (!isDragging) return;
+                if(event.cancelable) event.preventDefault();
+                const clientX = event.touches ? event.touches[0].clientX : event.clientX;
+                const clientY = event.touches ? event.touches[0].clientY : event.clientY;
+                const edgeSize = 80;
+                const boardContainer = document.getElementById('board-container');
+                if (!boardContainer) return;
+
+                const boardRect = boardContainer.getBoundingClientRect();
+                if (clientX < boardRect.left + edgeSize) autoScrollState.h = -1;
+                else if (clientX > boardRect.right - edgeSize) autoScrollState.h = 1;
+                else autoScrollState.h = 0;
+                
+                const overElement = document.elementFromPoint(clientX, clientY);
+                const listContainer = overElement ? overElement.closest('.card-container') : null;
+                
+                autoScrollState.v = 0;
+                if (listContainer) {
+                    autoScrollState.containerV = listContainer;
+                    const listRect = listContainer.getBoundingClientRect();
+                    if (clientY < listRect.top + edgeSize) autoScrollState.v = -1;
+                    else if (clientY > listRect.bottom - edgeSize) autoScrollState.v = 1;
+                }
+            }
+            
+            function scrollLoop() {
+                if (!isDragging) return;
+                const scrollSpeed = 10;
+                const boardContainer = document.getElementById('board-container');
+                if (autoScrollState.h !== 0 && boardContainer) boardContainer.scrollLeft += autoScrollState.h * scrollSpeed;
+                if (autoScrollState.v !== 0 && autoScrollState.containerV) autoScrollState.containerV.scrollTop += autoScrollState.v * scrollSpeed;
+                autoScrollState.animationFrameId = requestAnimationFrame(scrollLoop);
+            }
+
+            function startAutoScrollLoop() {
+                if (autoScrollState.animationFrameId) cancelAnimationFrame(autoScrollState.animationFrameId);
+                autoScrollState.animationFrameId = requestAnimationFrame(scrollLoop);
+            }
+            
+            function stopAutoScrollLoop() {
+                cancelAnimationFrame(autoScrollState.animationFrameId);
+                autoScrollState.animationFrameId = null;
+            }
+
+            function openModal(modalEl) {
+                if (!modalEl) return;
+                modalEl.classList.remove('hidden');
+                setTimeout(() => modalEl.classList.remove('opacity-0'), 10);
+                setTimeout(() => {
+                    const container = modalEl.querySelector('.modal-container');
+                    if (container) container.classList.remove('opacity-0', 'scale-95');
+                }, 20);
+            }
+            function closeModal(modalEl) {
+                if (!modalEl) return;
+                const container = modalEl.querySelector('.modal-container');
+                modalEl.classList.add('opacity-0');
+                if (container) container.classList.add('opacity-0', 'scale-95');
+                setTimeout(() => modalEl.classList.add('hidden'), 200);
+            }
+
+            function openCardFormModal(mode, cardId = null) {
+                const cardFormModal = document.getElementById('card-form-modal');
+                const cardForm = document.getElementById('card-form');
+                const titleEl = document.getElementById('card-form-title');
+                const submitBtn = document.getElementById('card-form-submit-btn');
+                const commentInputArea = document.getElementById('comment-input-area');
+                const cardOwnerSelector = document.getElementById('card-owner-selector-container');
+
+                if (!cardFormModal || !cardForm || !titleEl || !submitBtn || !commentInputArea || !cardOwnerSelector) return;
+
+                submitBtn.classList.remove('hidden');
+                commentInputArea.classList.remove('hidden');
+                cardOwnerSelector.classList.remove('hidden');
+                cardForm.querySelectorAll('input, select, textarea').forEach(el => {
+                    el.disabled = false;
+                    el.classList.remove('bg-gray-100');
+                });
+                
+                editingCardId = (mode === 'edit') ? cardId : null;
+                
+                cardForm.reset();
+                currentSelectedTags.clear();
+                newCommentAttachments = [];
+                document.getElementById('new-comment-previews').innerHTML = '';
+                document.getElementById('comment-history').innerHTML = '';
+                populateRegionDropdown();
+                setupCardOwnerDropdown(); 
+
+                if (mode === 'edit' && cardId) {
+                    const card = findCardById(cardId);
+                    if (card) {
+                        populateCardForm(card);
+                        if (card.owner !== currentUserId) {
+                            titleEl.textContent = '檢視卡片';
+                            submitBtn.classList.add('hidden');
+                            cardOwnerSelector.classList.add('hidden');
+                            cardForm.querySelectorAll('input:not(#comment-input), select, textarea').forEach(el => {
+                                el.disabled = true;
+                                el.classList.add('bg-gray-100');
+                            });
+                        } else {
+                            titleEl.textContent = '編輯卡片';
+                            submitBtn.textContent = '儲存變更';
+                        }
+                    }
+                } else {
+                    titleEl.textContent = '新增卡片';
+                    submitBtn.textContent = '儲存卡片';
+                    const owner = USERS.find(u => u.id === currentUserId);
+                    if (owner) {
+                        document.getElementById('selected-card-owner-name').textContent = owner.name;
+                        document.getElementById('selected-card-owner-region').textContent = owner.region;
+                    }
+                    const callDateEl = document.getElementById('call-date');
+                    if (callDateEl) callDateEl.valueAsDate = new Date();
+                }
+
+                renderTagSelector();
+                openModal(cardFormModal);
+            }
+
+            function populateCardForm(card) {
+                document.getElementById('call-date').value = card.date;
+                document.getElementById('customer-region').value = card.customer.region;
+                document.getElementById('customer-name').value = card.customer.name;
+                document.getElementById('company-name').value = card.customer.company;
+                document.getElementById('card-title').value = card.title;
+                document.getElementById('card-description').value = card.description;
+
+                const owner = USERS.find(u => u.id === card.owner);
+                if (owner) {
+                    document.getElementById('selected-card-owner-name').textContent = owner.name;
+                    document.getElementById('selected-card-owner-region').textContent = owner.region;
+                }
+                currentSelectedTags = new Set((card.tags || []).map(t => t.id));
+                
+                const historyContainer = document.getElementById('comment-history');
+                historyContainer.innerHTML = '';
+                (card.comments || []).forEach(comment => {
+                    historyContainer.prepend(createCommentElement(card, comment));
+                });
+            }
+
+            function handleCardFormSubmit(e) {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const allTags = groupedAvailableTags.flatMap(g => g.tags);
+                const selectedTagObjects = Array.from(currentSelectedTags).map(tagId => allTags.find(t => t.id === tagId)).filter(Boolean);
+                
+                const ownerName = document.getElementById('selected-card-owner-name').textContent;
+                const owner = USERS.find(u => u.name === ownerName);
+                const newOwnerId = owner ? owner.id : currentUserId;
+
+                const cardData = {
+                    title: formData.get('card-title') || '無標題卡片',
+                    date: formData.get('call-date'),
+                    customer: { name: formData.get('customer-name') || '未命名', company: formData.get('company-name'), region: formData.get('customer-region') },
+                    tags: selectedTagObjects,
+                    description: formData.get('card-description'),
+                    owner: newOwnerId
+                };
+
+                if (editingCardId) {
+                    const cardIndex = allCards.findIndex(c => c.id === editingCardId);
+                    if (cardIndex > -1) {
+                        const originalCard = { ...allCards[cardIndex] };
+                        allCards[cardIndex] = { ...originalCard, ...cardData };
+                        
+                        // Check if owner changed and trigger notification
+                        if (originalCard.owner !== newOwnerId) {
+                            const targetUser = USERS.find(u => u.id === newOwnerId);
+                            if (targetUser) {
+                                triggerLineNotification(targetUser, originalCard);
+                            }
+                        }
+                    }
+                } else {
+                    const newCardData = { ...cardData, id: 'card-' + Date.now(), listId: 'list-1', comments: [], attachments: [] };
+                    allCards.push(newCardData);
+                }
+                
+                closeModal(document.getElementById('card-form-modal'));
+                renderBoard({ preserveScroll: !!editingCardId }); 
+                editingCardId = null;
+            }
+            
+            function findCardById(cardId) {
+                return allCards.find(c => c && c.id === cardId) || null;
+            }
+            
+            function populateRegionDropdown() {
+                const selectEl = document.getElementById('customer-region');
+                if (!selectEl) return;
+                selectEl.innerHTML = '<option value="">請選擇縣市</option>'; 
+                regions.forEach(region => {
+                    const option = document.createElement('option');
+                    option.value = region;
+                    option.textContent = region;
+                    selectEl.appendChild(option);
+                });
+            }
+
+            function handleFileUpload(event) {
+                const previewContainer = document.getElementById('new-comment-previews');
+                if (!previewContainer) return;
+                const files = event.target.files;
+                
+                for (const file of files) {
+                    const reader = new FileReader();
+                    reader.onload = e => {
+                       const fileData = { name: file.name, type: file.type, url: e.target.result };
+                       newCommentAttachments.push(fileData);
+                       const filePreviewEl = createAttachmentPreview(fileData);
+                       previewContainer.appendChild(filePreviewEl);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+
+            function createAttachmentPreview(fileData) {
+                 const fileWrapper = document.createElement('div');
+                 fileWrapper.className = 'relative w-16 h-16 bg-gray-200 rounded-md flex items-center justify-center';
+                 if (fileData.type.startsWith('image/')) {
+                     const img = document.createElement('img');
+                     img.src = fileData.url;
+                     img.className = 'w-full h-full object-cover rounded-md';
+                     fileWrapper.appendChild(img);
+                 } else {
+                     fileWrapper.innerHTML = `<svg class="w-8 h-8 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>`;
+                 }
+                 return fileWrapper;
+            }
+
+            function handleSendComment() {
+                const input = document.getElementById('comment-input');
+                const displayArea = document.getElementById('comment-history');
+                if (!input || !displayArea) return;
+                
+                const commentText = input.value.trim();
+                if (commentText === '' && newCommentAttachments.length === 0) return;
+
+                const commentData = {
+                    id: 'comment-' + Date.now(),
+                    author: currentUserId,
+                    time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+                    text: commentText,
+                    attachments: [...newCommentAttachments] 
+                };
+
+                const card = findCardById(editingCardId);
+                if (card) {
+                    if (!card.comments) card.comments = [];
+                    card.comments.unshift(commentData);
+                    populateCardForm(card);
+                }
+                
+                input.value = '';
+                newCommentAttachments = [];
+                const previewContainer = document.getElementById('new-comment-previews');
+                if(previewContainer) previewContainer.innerHTML = '';
+            }
+
+            function createCommentElement(card, commentData) {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'flex items-start gap-3';
+                wrapper.dataset.commentId = commentData.id;
+
+                let attachmentsHtml = '';
+                if(commentData.attachments && commentData.attachments.length > 0) {
+                    attachmentsHtml = `<div class="flex flex-wrap gap-2 mt-2">${commentData.attachments.map(file => {
+                        if (file.type.startsWith('image/')) {
+                            return `<img src="${file.url}" class="w-24 h-24 object-cover rounded-md">`;
+                        }
+                        return `<div class="p-2 bg-gray-200 rounded-md text-sm text-gray-600">${file.name}</div>`;
+                    }).join('')}</div>`;
+                }
+                const author = USERS.find(u => u.id === commentData.author);
+                const canEdit = commentData.author === currentUserId;
+                const menuButtonHtml = canEdit ? `
+                    <div class="relative ml-auto">
+                        <button type="button" class="comment-menu-btn p-1 rounded-full hover:bg-gray-200">
+                            <svg class="w-5 h-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20"><path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" /></svg>
+                        </button>
+                        <div class="comment-menu-dropdown absolute right-0 w-28 bg-white shadow-lg rounded-md border hidden z-10">
+                            <a href="#" class="edit-comment-btn block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">編輯</a>
+                            <a href="#" class="delete-comment-btn block px-4 py-2 text-sm text-red-600 hover:bg-gray-100">刪除</a>
+                        </div>
+                    </div>
+                ` : '';
+
+                wrapper.innerHTML = `
+                    <div class="flex-grow bg-gray-100 p-3 rounded-lg">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-bold text-sm">${author ? author.name : '未知使用者'}</span>
+                            <div class="flex items-center">
+                                <span class="text-xs text-gray-500 mr-2">${commentData.time}</span>
+                                ${menuButtonHtml}
+                            </div>
+                        </div>
+                        <div class="comment-content">
+                            <p class="text-gray-800 break-words">${commentData.text || ''}</p>
+                            ${attachmentsHtml}
+                        </div>
+                        <div class="comment-edit-form hidden mt-2 space-y-2">
+                            <textarea class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 text-sm">${commentData.text || ''}</textarea>
+                            <div class="flex justify-end gap-2">
+                                <button type="button" class="cancel-edit-comment-btn text-sm px-3 py-1 rounded-md hover:bg-gray-200">取消</button>
+                                <button type="button" class="save-edit-comment-btn text-sm px-3 py-1 rounded-md bg-blue-600 text-white hover:bg-blue-700">儲存</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                const menuButton = wrapper.querySelector('.comment-menu-btn');
+                const menuDropdown = wrapper.querySelector('.comment-menu-dropdown');
+                if (menuButton) {
+                    menuButton.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        document.querySelectorAll('.comment-menu-dropdown').forEach(dd => {
+                            if (dd !== menuDropdown) {
+                                dd.classList.add('hidden');
+                            }
+                        });
+
+                        const buttonRect = menuButton.getBoundingClientRect();
+                        const spaceBelow = window.innerHeight - buttonRect.bottom;
+                        const dropdownHeight = menuDropdown.offsetHeight || 80;
+
+                        if (spaceBelow < dropdownHeight && buttonRect.top > dropdownHeight) {
+                            menuDropdown.classList.remove('mt-1');
+                            menuDropdown.classList.add('bottom-full', 'mb-1');
+                        } else {
+                            menuDropdown.classList.remove('bottom-full', 'mb-1');
+                            menuDropdown.classList.add('mt-1');
+                        }
+                        menuDropdown.classList.toggle('hidden');
+                    });
+                }
+                
+                const editButton = wrapper.querySelector('.edit-comment-btn');
+                if (editButton) {
+                    editButton.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        wrapper.querySelector('.comment-content').classList.add('hidden');
+                        wrapper.querySelector('.comment-edit-form').classList.remove('hidden');
+                        menuDropdown.classList.add('hidden');
+                    });
+                }
+
+                const cancelButton = wrapper.querySelector('.cancel-edit-comment-btn');
+                if (cancelButton) {
+                    cancelButton.addEventListener('click', () => {
+                        wrapper.querySelector('.comment-content').classList.remove('hidden');
+                        wrapper.querySelector('.comment-edit-form').classList.add('hidden');
+                        wrapper.querySelector('textarea').value = commentData.text || '';
+                    });
+                }
+
+                const saveButton = wrapper.querySelector('.save-edit-comment-btn');
+                if (saveButton) {
+                    saveButton.addEventListener('click', () => {
+                        const newText = wrapper.querySelector('textarea').value;
+                        const commentIndex = card.comments.findIndex(c => c.id === commentData.id);
+                        if (commentIndex > -1) {
+                            card.comments[commentIndex].text = newText;
+                            populateCardForm(card);
+                        }
+                    });
+                }
+
+                const deleteButton = wrapper.querySelector('.delete-comment-btn');
+                if (deleteButton) {
+                     deleteButton.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        openConfirmationModal(
+                            '確定要刪除這則留言嗎？',
+                            '此操作無法復原。',
+                            () => {
+                                const commentIndex = card.comments.findIndex(c => c.id === commentData.id);
+                                if (commentIndex > -1) {
+                                    card.comments.splice(commentIndex, 1);
+                                    populateCardForm(card);
+                                    showToast('留言已刪除', 'success');
+                                }
+                            }
+                        );
+                    });
+                }
+
+                return wrapper;
+            }
+            
+            function setupMobileScroll() {
+                const boardContainer = document.getElementById('board-container');
+                if (!isMobile) {
+                    if (boardContainer) boardContainer.style.scrollSnapType = '';
+                    boardContainer?.removeEventListener('scroll', updateNavDots);
+                    return;
+                }
+                if (boardContainer) {
+                    boardContainer.style.scrollSnapType = 'x mandatory';
+                    boardContainer.querySelectorAll('.list-item').forEach(list => {
+                        list.style.scrollSnapAlign = 'start';
+                    });
+                    boardContainer.addEventListener('scroll', updateNavDots);
+                    updateNavDots();
+                }
+            }
+
+            function updateNavDots() {
+                const boardContainer = document.getElementById('board-container');
+                const navDotsContainer = document.getElementById('nav-dots');
+                if (!isMobile || !boardContainer || !navDotsContainer) return;
+                const scrollLeft = boardContainer.scrollLeft;
+                const listWidth = window.innerWidth;
+                const currentIndex = Math.round(scrollLeft / listWidth);
+                lastKnownMobileIndex = currentIndex; 
+                Array.from(navDotsContainer.children).forEach((dot, i) => {
+                    dot.classList.toggle('bg-blue-500', i === currentIndex);
+                    dot.classList.toggle('bg-gray-300', i !== currentIndex);
+                });
+            }
+            
+            function setupUserDropdowns() {
+                const userMenuButton = document.getElementById('user-menu-button');
+                const userMenu = document.getElementById('user-menu')?.querySelector('.py-1');
+
+                if (userMenuButton && userMenu) {
+                    userMenu.innerHTML = '';
+                    USERS.forEach(user => {
+                        const option = document.createElement('a');
+                        option.href = '#';
+                        option.className = 'user-option text-gray-700 block px-4 py-2 text-sm rounded-md m-1 hover:bg-gray-100';
+                        option.dataset.userId = user.id;
+                        option.innerHTML = `<div class="text-xs text-gray-500">${user.region}</div><div class="font-semibold">${user.name}</div>`;
+                        
+                        option.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            currentUserId = user.id;
+                            updateSelectedUserDisplay(user);
+                            userMenu.parentElement.classList.add('hidden');
+                            renderBoard();
+                        });
+                        userMenu.appendChild(option);
+                    });
+                    userMenuButton.addEventListener('click', (e) => { 
+                        e.stopPropagation(); 
+                        userMenu.parentElement.classList.toggle('hidden'); 
+                    });
+                }
+            }
+
+            function updateSelectedUserDisplay(user) {
+                if(user) {
+                    document.getElementById('selected-user-region').textContent = user.region;
+                    document.getElementById('selected-user-name').textContent = user.name;
+                }
+            }
+            
+            function setupCardOwnerDropdown() {
+                const ownerMenuButton = document.getElementById('card-owner-menu-button');
+                const ownerMenu = document.getElementById('card-owner-menu')?.querySelector('.py-1');
+
+                if (ownerMenuButton && ownerMenu) {
+                    ownerMenu.innerHTML = '';
+                    USERS.forEach(user => {
+                        const option = document.createElement('a');
+                        option.href = '#';
+                        option.className = 'owner-option text-gray-700 block px-4 py-2 text-sm rounded-md m-1 hover:bg-gray-100';
+                        option.dataset.userId = user.id;
+                        option.innerHTML = `<div class="text-xs text-gray-500">${user.region}</div><div class="font-semibold">${user.name}</div>`;
+                        option.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            document.getElementById('selected-card-owner-name').textContent = user.name;
+                             document.getElementById('selected-card-owner-region').textContent = user.region;
+                            ownerMenu.parentElement.classList.add('hidden');
+                        });
+                        ownerMenu.appendChild(option);
+                    });
+                    ownerMenuButton.addEventListener('click', (e) => { e.stopPropagation(); ownerMenu.parentElement.classList.toggle('hidden'); });
+                }
+            }
+
+            function renderTagSelector() {
+                const optionsContainer = document.getElementById('tag-options-container');
+                if (!optionsContainer) return;
+                optionsContainer.innerHTML = '';
+
+                groupedAvailableTags.forEach((group) => {
+                    if(!group.tags || group.tags.length === 0) return;
+                    const groupContainer = document.createElement('div');
+                    groupContainer.className = 'p-2 flex flex-wrap gap-2';
+                    group.tags.forEach(tag => {
+                        const pill = createTagPill(tag, currentSelectedTags.has(tag.id), true);
+                        pill.addEventListener('click', () => toggleTagSelection(tag.id));
+                        groupContainer.appendChild(pill);
+                    });
+                    optionsContainer.appendChild(groupContainer);
+                });
+                
+                updateSelectedTagsDisplay();
+            }
+
+            function createTagPill(tag, isSelected = false, isClickable = false) {
+                const pill = document.createElement('span');
+                pill.className = `tag-pill rounded-full px-3 py-1 text-sm font-semibold ${isClickable ? 'cursor-pointer' : ''}`;
+                pill.dataset.tagId = tag.id;
+                pill.textContent = tag.text;
+                updateTagPillStyle(pill, tag, isSelected);
+                return pill;
+            }
+
+            function updateTagPillStyle(pill, tag, isSelected) {
+                const colors = tagColors[tag.color] || tagColors['gray'];
+                if (isSelected) {
+                    pill.className = `tag-pill rounded-full px-3 py-1 text-sm font-semibold ${colors.bg} text-white border-transparent ${pill.classList.contains('cursor-pointer') ? 'cursor-pointer' : ''}`;
+                } else {
+                    pill.className = `tag-pill rounded-full px-3 py-1 text-sm font-semibold bg-gray-100 ${colors.text} ${colors.border} ${pill.classList.contains('cursor-pointer') ? 'cursor-pointer' : ''}`;
+                }
+            }
+
+            function toggleTagSelection(tagId) {
+                if (currentSelectedTags.has(tagId)) {
+                    currentSelectedTags.delete(tagId);
+                } else {
+                    currentSelectedTags.add(tagId);
+                }
+                const optionPill = document.querySelector(`#tag-options-container [data-tag-id="${tagId}"]`);
+                if (optionPill) {
+                    const allTags = groupedAvailableTags.flatMap(g => g.tags);
+                    const tagData = allTags.find(t => t.id === tagId);
+                    if (tagData) updateTagPillStyle(optionPill, tagData, currentSelectedTags.has(tagId));
+                }
+                updateSelectedTagsDisplay();
+            }
+            
+            function updateSelectedTagsDisplay() {
+                const displayContainer = document.getElementById('selected-tags-display');
+                if (!displayContainer) return;
+                displayContainer.innerHTML = '';
+                if (currentSelectedTags.size === 0) {
+                    displayContainer.innerHTML = '<span class="text-gray-400 self-center">未選擇標籤</span>';
+                    return;
+                }
+                const allTags = groupedAvailableTags.flatMap(g => g.tags);
+                currentSelectedTags.forEach(tagId => {
+                    const tagData = allTags.find(t => t.id === tagId);
+                    if (tagData) {
+                        const pill = createTagPill(tagData, true, false); 
+                        displayContainer.appendChild(pill);
+                    }
+                });
+            }
+            
+            // --- SETTINGS MODAL LOGIC ---
+            function openSettingsModal() {
+                renderUserChannelPairing();
+                renderListSettings();
+                renderTagSettings();
+                handleSettingsTabs({ currentTarget: document.getElementById('tab-users') });
+                openModal(document.getElementById('settings-modal'));
+            }
+
+            function renderUserChannelPairing() {
+                const container = document.getElementById('user-channel-pairing-container');
+                if (!container) return;
+
+                const currentUser = USERS.find(u => u.id === currentUserId);
+                if (!currentUser) return;
+
+                container.innerHTML = ''; // Clear previous content
+
+                // Check if the current user is already paired
+                if (currentUser.lineChannelId) {
+                    const pairedChannel = LINE_CHANNELS.find(c => c.id === currentUser.lineChannelId);
+                    container.innerHTML = `
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h5 class="font-semibold text-gray-500 mb-2">目前使用者</h5>
+                                <div class="p-4 bg-white border rounded-lg">
+                                    <p class="font-bold text-lg text-gray-800">${currentUser.name}</p>
+                                    <p class="text-sm text-gray-500">${currentUser.region}</p>
+                                </div>
+                            </div>
+                            <div>
+                                <h5 class="font-semibold text-gray-500 mb-2">已配對的頻道</h5>
+                                <div class="p-4 bg-green-100 border border-green-300 rounded-lg flex items-center gap-3">
+                                    <svg class="w-6 h-6 text-green-600 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                                    </svg>
+                                    <div>
+                                        <p class="font-bold text-lg text-green-800">${pairedChannel ? pairedChannel.name : '未知頻道'}</p>
+                                        <p class="text-sm text-green-700">此配對已鎖定</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // Render the drag-and-drop interface for pairing
+                    const pairedChannelIds = USERS.map(u => u.lineChannelId).filter(Boolean);
+                    const availableChannels = LINE_CHANNELS.filter(c => !pairedChannelIds.includes(c.id));
+
+                    container.innerHTML = `
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h5 class="font-semibold text-gray-500 mb-2">目前使用者 (將頻道拖曳至此)</h5>
+                                <div id="user-drop-zone" data-user-id="${currentUser.id}" class="user-drop-zone p-4 bg-white border-2 border-dashed rounded-lg min-h-[120px] flex items-center justify-center">
+                                    <div>
+                                        <p class="font-bold text-lg text-gray-800">${currentUser.name}</p>
+                                        <p class="text-sm text-gray-500">${currentUser.region}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <h5 class="font-semibold text-gray-500 mb-2">可用的頻道</h5>
+                                <div id="channel-pool" class="p-3 bg-gray-100 border rounded-lg min-h-[120px] space-y-2">
+                                    ${availableChannels.length > 0 ? availableChannels.map(channel => `
+                                        <div class="channel-item p-3 bg-white rounded-md shadow-sm border flex items-center gap-2" data-channel-id="${channel.id}">
+                                            <svg class="w-5 h-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+                                            <span class="font-semibold">${channel.name}</span>
+                                        </div>
+                                    `).join('') : '<p class="text-center text-gray-500 p-4">已無可用頻道</p>'}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+
+                    // Initialize SortableJS
+                    const userDropZone = document.getElementById('user-drop-zone');
+                    const channelPool = document.getElementById('channel-pool');
+
+                    if (userDropZone && channelPool) {
+                        new Sortable(channelPool, {
+                            group: 'channelPairing',
+                            animation: 150
+                        });
+
+                        new Sortable(userDropZone, {
+                            group: 'channelPairing',
+                            animation: 150,
+                            onAdd: function (evt) {
+                                const channelId = evt.item.dataset.channelId;
+                                const userId = evt.to.dataset.userId;
+                                
+                                const userToUpdate = USERS.find(u => u.id === userId);
+                                if (userToUpdate) {
+                                    userToUpdate.lineChannelId = channelId;
+                                    // Re-render the UI to show the "paired" state
+                                    renderUserChannelPairing();
+                                    showToast('頻道配對成功！', 'success');
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+
+            function renderListSettings() {
+                const container = document.getElementById('settings-lists-container');
+                container.innerHTML = '';
+                LISTS.forEach((list, index) => {
+                    const isLocked = index === 0;
+                    const item = document.createElement('div');
+                    item.dataset.listId = list.id;
+                    item.className = `flex items-center gap-2 p-2 rounded-md border ${isLocked ? 'bg-gray-100 item-locked' : 'bg-white'}`;
+                    item.innerHTML = `
+                        <span class="settings-drag-handle text-gray-400 ${isLocked ? 'opacity-50 cursor-not-allowed' : 'hover:text-gray-700'}">
+                            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+                        </span>
+                        <input type="text" value="${list.title}" class="flex-grow bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500 rounded-md p-1">
+                        <button class="delete-list-btn text-gray-400 hover:text-red-500" ${isLocked ? 'disabled' : ''}>
+                           <svg class="w-5 h-5 ${isLocked ? 'opacity-50 cursor-not-allowed' : ''}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.134-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.067-2.09.92-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                        </button>
+                    `;
+                    container.appendChild(item);
+
+                    item.querySelector('input').addEventListener('change', (e) => {
+                        list.title = e.target.value;
+                    });
+                     
+                    const deleteBtn = item.querySelector('.delete-list-btn');
+                    if(deleteBtn && !isLocked) {
+                        deleteBtn.addEventListener('click', () => {
+                            openConfirmationModal(
+                                '確定要刪除列表嗎？',
+                                `列表 "${list.title}" 中的所有卡片將會被移至 "${LISTS[0].title}"。<br>此操作無法復原。`,
+                                () => {
+                                    // 確認刪除後執行的回呼函式
+                                    allCards.forEach(card => {
+                                        if (card.listId === list.id) {
+                                            card.listId = LISTS[0].id;
+                                        }
+                                    });
+                                    LISTS.splice(index, 1);
+                                    renderListSettings(); // 重新渲染列表設定
+                                    showToast('列表已成功刪除', 'success');
+                                }
+                            );
+                        });
+                    }
+                });
+
+                new Sortable(container, {
+                    handle: '.settings-drag-handle',
+                    filter: '.item-locked',
+                    animation: 150,
+                    onMove: (evt) => {
+                        // 防止其他項目移動到被鎖定的項目位置
+                        return !evt.related.classList.contains('item-locked');
+                    },
+                    onEnd: (evt) => {
+                        const { oldIndex, newIndex } = evt;
+                        if (oldIndex === newIndex) return;
+
+                        // 從陣列中移動項目
+                        const [movedList] = LISTS.splice(oldIndex, 1);
+                        LISTS.splice(newIndex, 0, movedList);
+                        
+                        // 重新渲染以更新畫面和順序
+                        renderListSettings();
+                    }
+                });
+            }
+
+            function renderTagSettings() {
+                const container = document.getElementById('settings-tags-container');
+                container.innerHTML = '';
+
+                groupedAvailableTags.forEach((group, groupIndex) => {
+                    const groupEl = document.createElement('div');
+                    groupEl.className = 'p-4 border rounded-lg';
+                    groupEl.innerHTML = `<h5 class="text-md font-semibold mb-3">${group.groupName}</h5>`;
+
+                    const tagsContainer = document.createElement('div');
+                    tagsContainer.className = 'space-y-2';
+                    
+                    group.tags.forEach((tag, tagIndex) => {
+                        const tagItem = document.createElement('div');
+                        tagItem.className = 'flex items-center gap-3';
+                        tagItem.dataset.tagId = tag.id;
+
+                        tagItem.innerHTML = `
+                           <span class="settings-drag-handle text-gray-400 hover:text-gray-700">
+                               <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+                           </span>
+                           <input type="text" value="${tag.text}" class="flex-grow bg-transparent focus:bg-white focus:ring-1 focus:ring-blue-500 rounded-md p-1">
+                           <div class="relative ml-auto">
+                                <button type="button" data-palette-toggle="${tag.id}" class="w-6 h-6 rounded-full ${tagColors[tag.color].bg} border-2 border-white shadow-md"></button>
+                                <div id="palette-${tag.id}" class="color-palette absolute z-20 right-0 mt-2 w-48 grid grid-cols-4 gap-3 p-3 bg-white shadow-lg rounded-md border hidden">
+                                     ${Object.keys(tagColors).map(colorName =>
+                                         `<div data-color="${colorName}" data-tag-id="${tag.id}" class="color-dot-picker h-7 w-7 rounded-full cursor-pointer ${tagColors[colorName].bg} hover:scale-110 transition-transform"></div>`
+                                     ).join('')}
+                                </div>
+                            </div>
+                        `;
+                        tagsContainer.appendChild(tagItem);
+
+                        tagItem.querySelector('input').addEventListener('change', (e) => {
+                            tag.text = e.target.value;
+                        });
+                    });
+                    
+                    const addTagButton = document.createElement('button');
+                    addTagButton.className = "mt-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-1 px-3 rounded-md text-xs inline-flex items-center";
+                    addTagButton.innerHTML = `<svg class="w-4 h-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>新增標籤`;
+                    addTagButton.addEventListener('click', () => {
+                       const newTag = { id: 'tag-' + Date.now(), text: '新標籤', color: 'gray' };
+                       group.tags.push(newTag);
+                       renderTagSettings();
+                    });
+
+                    groupEl.appendChild(tagsContainer);
+                    groupEl.appendChild(addTagButton);
+                    container.appendChild(groupEl);
+                    
+                    new Sortable(tagsContainer, {
+                        handle: '.settings-drag-handle',
+                        animation: 150,
+                        onEnd: (evt) => {
+                           const { oldIndex, newIndex } = evt;
+                           if(oldIndex === newIndex) return;
+                           const [movedTag] = group.tags.splice(oldIndex, 1);
+                           group.tags.splice(newIndex, 0, movedTag);
+                           renderTagSettings();
+                        }
+                    });
+                });
+
+                document.querySelectorAll('[data-palette-toggle]').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const tagId = e.currentTarget.dataset.paletteToggle;
+                        const palette = document.getElementById(`palette-${tagId}`);
+                        if (palette) {
+                            document.querySelectorAll('.color-palette').forEach(p => {
+                                if (p.id !== palette.id) p.classList.add('hidden');
+                            });
+                            palette.classList.toggle('hidden');
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.color-dot-picker').forEach(dot => {
+                    dot.addEventListener('click', (e) => {
+                         const tagId = e.currentTarget.dataset.tagId;
+                         const newColor = e.currentTarget.dataset.color;
+                         
+                         for (const group of groupedAvailableTags) {
+                            const tag = group.tags.find(t => t.id === tagId);
+                            if (tag) {
+                                tag.color = newColor;
+                                break;
+                            }
+                         }
+                         renderTagSettings();
+                    });
+                });
+            }
+
+            function handleSettingsTabs(e) {
+                const tabs = [
+                    { btn: document.getElementById('tab-users'), content: document.getElementById('tab-content-users') },
+                    { btn: document.getElementById('tab-lists'), content: document.getElementById('tab-content-lists') },
+                    { btn: document.getElementById('tab-tags'), content: document.getElementById('tab-content-tags') },
+                ];
+                
+                const selectedTab = e.currentTarget;
+
+                tabs.forEach(tab => {
+                    if (!tab.btn || !tab.content) return;
+                    if (tab.btn === selectedTab) {
+                        tab.btn.classList.add('border-blue-500', 'text-blue-600');
+                        tab.btn.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+                        tab.content.classList.remove('hidden');
+                    } else {
+                        tab.btn.classList.remove('border-blue-500', 'text-blue-600');
+                        tab.btn.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+                        tab.content.classList.add('hidden');
+                    }
+                });
+            }
+
+            // --- SEARCH LOGIC ---
+            function handleSearch() {
+                const searchInput = document.getElementById('search-input');
+                const searchResultsContainer = document.getElementById('search-results');
+                const query = searchInput.value.toLowerCase().trim();
+
+                if (query.length < 1) {
+                    searchResultsContainer.innerHTML = '';
+                    searchResultsContainer.classList.add('hidden');
+                    return;
+                }
+
+                const results = allCards.filter(card => {
+                    const searchableContent = [
+                        card.title,
+                        card.description,
+                        card.customer.name,
+                        card.customer.company,
+                        card.date,
+                        ...(card.tags || []).map(t => t.text),
+                        ...(card.comments || []).map(c => c.text),
+                        ...(card.attachments || []).map(a => a.name)
+                    ].join(' ').toLowerCase();
+                    return searchableContent.includes(query);
+                });
+                
+                renderSearchResults(results);
+            }
+
+            function renderSearchResults(results) {
+                const searchResultsContainer = document.getElementById('search-results');
+                searchResultsContainer.innerHTML = '';
+
+                if (results.length === 0) {
+                    searchResultsContainer.innerHTML = `<div class="p-3 text-sm text-gray-500">找不到結果</div>`;
+                } else {
+                    results.forEach(card => {
+                        const item = document.createElement('div');
+                        item.className = 'p-3 hover:bg-gray-100 cursor-pointer border-b last:border-b-0';
+                        
+                        const tagsHtml = card.tags && card.tags.length > 0 ? `<div class="flex flex-wrap gap-1 mb-2">${card.tags.map(tag => `<span class="px-2 py-0.5 text-xs font-semibold rounded-full ${tagColors[tag.color]?.bg || tagColors['gray'].bg} text-white">${tag.text}</span>`).join('')}</div>` : '';
+                        const owner = USERS.find(u => u.id === card.owner);
+
+                        item.innerHTML = `
+                            ${tagsHtml}
+                            <div class="font-semibold text-sm text-gray-800">${card.title}</div>
+                            <div class="text-xs text-gray-500 mt-1">${card.customer.name} - ${card.customer.region}</div>
+                            <div class="text-xs text-gray-400 mt-1">負責人: ${owner ? owner.name : '未知'}</div>
+                        `;
+                        item.addEventListener('click', () => {
+                            openCardFormModal('edit', card.id);
+                            document.getElementById('search-input').value = '';
+                            searchResultsContainer.classList.add('hidden');
+                        });
+                        searchResultsContainer.appendChild(item);
+                    });
+                }
+                searchResultsContainer.classList.remove('hidden');
+            }
+
+
+            function initEventListeners() {
+                const addCardBtn = document.getElementById('add-card-btn');
+                const cardFormCloseBtn = document.getElementById('card-form-close-btn');
+                const cardForm = document.getElementById('card-form');
+                const fileUpload = document.getElementById('comment-file-upload');
+                const sendCommentBtn = document.getElementById('send-comment-btn');
+                const commentInput = document.getElementById('comment-input');
+                const tagDropdownWrapper = document.getElementById('selected-tags-display-wrapper');
+                
+                // Settings Modal Elements
+                const settingsBtn = document.getElementById('settings-btn');
+                const settingsModal = document.getElementById('settings-modal');
+                const settingsCloseBtn = document.getElementById('settings-close-btn');
+                const settingsDoneBtn = document.getElementById('settings-done-btn');
+                const addListBtn = document.getElementById('add-list-btn');
+                const tabUsers = document.getElementById('tab-users');
+                const tabLists = document.getElementById('tab-lists');
+                const tabTags = document.getElementById('tab-tags');
+                
+                // Search Elements
+                const searchInput = document.getElementById('search-input');
+                const searchInputContainer = document.getElementById('search-input-container');
+
+                // Confirmation Modal Elements
+                const confirmModal = document.getElementById('confirm-modal');
+                const confirmCancelBtn = document.getElementById('confirm-modal-cancel-btn');
+
+
+                if (addCardBtn) addCardBtn.addEventListener('click', () => openCardFormModal('add'));
+                if (cardFormCloseBtn) cardFormCloseBtn.addEventListener('click', () => closeModal(document.getElementById('card-form-modal')));
+                if (cardForm) cardForm.addEventListener('submit', handleCardFormSubmit);
+                if (fileUpload) fileUpload.addEventListener('change', handleFileUpload);
+                if (sendCommentBtn) sendCommentBtn.addEventListener('click', handleSendComment);
+                if (commentInput) commentInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSendComment(); }});
+                if (tagDropdownWrapper) tagDropdownWrapper.addEventListener('click', (e) => {
+                    if (e.target.closest('.tag-pill')) return;
+                    document.getElementById('tag-options-container')?.classList.toggle('hidden');
+                });
+             
+                // Settings Listeners
+                if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
+                if (settingsCloseBtn) settingsCloseBtn.addEventListener('click', () => closeModal(settingsModal));
+                if(settingsDoneBtn) settingsDoneBtn.addEventListener('click', () => {
+                    closeModal(settingsModal);
+                    renderBoard();
+                });
+                if(addListBtn) addListBtn.addEventListener('click', () => {
+                    LISTS.push({ id: 'list-' + Date.now(), title: '新列表' });
+                    renderListSettings();
+                });
+                if(tabUsers) tabUsers.addEventListener('click', handleSettingsTabs);
+                if(tabLists) tabLists.addEventListener('click', handleSettingsTabs);
+                if(tabTags) tabTags.addEventListener('click', handleSettingsTabs);
+                
+                // Confirmation Modal Listeners
+                if (confirmCancelBtn && confirmModal) {
+                    confirmCancelBtn.addEventListener('click', () => closeModal(confirmModal));
+                }
+
+                // --- Search Listeners ---
+                if (searchInput && searchInputContainer) {
+                    searchInput.addEventListener('focus', () => {
+                        searchInputContainer.classList.add('w-48', 'md:w-64', 'bg-white', 'ring-2', 'ring-blue-500');
+                        searchInputContainer.classList.remove('w-10', 'md:w-52');
+                    });
+                    
+                    searchInput.addEventListener('input', handleSearch);
+                }
+
+                document.addEventListener('click', (e) => {
+                    // Close dropdowns
+                    if (!document.getElementById('user-selector-container')?.contains(e.target)) {
+                       document.getElementById('user-menu')?.classList.add('hidden');
+                    }
+                    if (!document.getElementById('card-owner-selector-container')?.contains(e.target)) {
+                       document.getElementById('card-owner-menu')?.classList.add('hidden');
+                    }
+                    if (!document.getElementById('tag-selector-container')?.contains(e.target)) {
+                        document.getElementById('tag-options-container')?.classList.add('hidden');
+                    }
+                    document.querySelectorAll('.comment-menu-dropdown:not(.hidden)').forEach(menu => {
+                         if (!menu.closest('.relative').contains(e.target)) {
+                             menu.classList.add('hidden');
+                         }
+                    });
+                    const openPalette = document.querySelector('.color-palette:not(.hidden)');
+                    if(openPalette && !openPalette.parentElement.contains(e.target)){
+                        openPalette.classList.add('hidden');
+                    }
+                     if(!document.getElementById('search-container')?.contains(e.target)) {
+                        document.getElementById('search-results').classList.add('hidden');
+                         if (searchInput && searchInput.value.trim() === '') {
+                             searchInputContainer.classList.remove('w-48', 'md:w-64', 'bg-white', 'ring-2', 'ring-blue-500');
+                             searchInputContainer.classList.add('w-10', 'md:w-52', 'bg-gray-100');
+                         }
+                    }
+
+                    // Close modals by clicking on overlay
+                    if (e.target === document.getElementById('card-form-modal')) closeModal(document.getElementById('card-form-modal'));
+                    if (e.target === document.getElementById('settings-modal')) closeModal(document.getElementById('settings-modal'));
+                    if (e.target === document.getElementById('confirm-modal')) closeModal(document.getElementById('confirm-modal'));
+                });
+            }
+
+            function handlePwaPrompt() {
+                if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) return;
+                if (localStorage.getItem('pwaPromptDismissed') === 'true') return;
+
+                const promptEl = document.getElementById('pwa-install-prompt');
+                const textEl = document.getElementById('pwa-prompt-text');
+                const closeBtn = document.getElementById('pwa-prompt-close');
+                if (!promptEl || !textEl || !closeBtn) return;
+                
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+                const iosIcon = `<svg class="inline-block w-5 h-5 mx-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50"><path d="M24.25,32.75a1.5,1.5,0,0,1,1.5-1.5h.008a1.5,1.5,0,0,1,1.5,1.5v10.5a1.5,1.5,0,0,1-1.5,1.5h-.008a1.5,1.5,0,0,1-1.5-1.5ZM25,2a1.5,1.5,0,0,0-1.5,1.5v28.5a1.5,1.5,0,0,0,3,0V3.5A1.5,1.5,0,0,0,25,2Z"></path><path d="M15.46,18.28a1.5,1.5,0,0,0,2.12,0L25,10.8l7.42,7.48a1.5,1.5,0,0,0,2.12-2.12l-8.48-8.48a1.5,1.5,0,0,0-2.12,0L15.46,16.16A1.5,1.5,0,0,0,15.46,18.28Z"></path></svg>`;
+                const androidIcon = `<svg class="inline-block w-5 h-5 mx-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>`;
+
+                if (isIOS) {
+                    textEl.innerHTML = `點一下「分享」圖示 ${iosIcon}，然後選擇「加入主畫面」，即可獲得最佳體驗！`;
+                } else {
+                    textEl.innerHTML = `點一下選單 ${androidIcon}，然後選擇「安裝應用程式」或「新增至主畫面」，即可獲得最佳體驗！`;
+                }
+
+                closeBtn.addEventListener('click', () => {
+                    promptEl.classList.add('translate-y-20');
+                    setTimeout(() => promptEl.classList.add('hidden'), 300);
+                    localStorage.setItem('pwaPromptDismissed', 'true');
+                });
+
+                setTimeout(() => {
+                    promptEl.classList.remove('hidden');
+                    setTimeout(() => {
+                         promptEl.classList.remove('translate-y-20');
+                    }, 50)
+                }, 1500);
+            }
+
+            // --- 新增的功能: LINE 通知與提示 ---
+            function triggerLineNotification(targetUser, card) {
+                const channel = LINE_CHANNELS.find(c => c.id === targetUser.lineChannelId);
+                if (!channel) {
+                    console.warn(`使用者 ${targetUser.name} 未設定有效的 LINE 通知頻道。`);
+                    return;
+                }
+                const message = `[看板通知] 卡片 "${card.title}" 已轉移給您。`;
+                
+                // --- 模擬後端 API 呼叫 ---
+                console.log(`準備發送 LINE 通知...`);
+                console.log(`  -> 頻道: ${channel.name} (${channel.id})`);
+                console.log(`  -> 接收者: ${targetUser.name}`);
+                console.log(`  -> 訊息: ${message}`);
+                console.log('--- 後端 API 呼叫應在此處執行 ---');
+                
+                showToast(`已傳送通知給 ${targetUser.name}`, 'info');
+            }
+
+            function showToast(message, type = 'info') {
+                const container = document.getElementById('toast-container');
+                if (!container) return;
+
+                const toast = document.createElement('div');
+                const typeClasses = {
+                    success: 'bg-green-500',
+                    info: 'bg-blue-500',
+                    error: 'bg-red-500'
+                };
+
+                toast.className = `toast-notification p-4 rounded-lg shadow-lg text-white text-sm ${typeClasses[type]} opacity-0 transform translate-x-12`;
+                toast.textContent = message;
+
+                container.appendChild(toast);
+                
+                // Animate in
+                setTimeout(() => {
+                    toast.classList.remove('opacity-0', 'translate-x-12');
+                }, 10);
+
+                // Animate out and remove
+                setTimeout(() => {
+                    toast.classList.add('opacity-0', 'translate-x-12');
+                    toast.addEventListener('transitionend', () => {
+                        toast.remove();
+                    });
+                }, 3000);
+            }
+
+            // --- 新增的功能: 通用確認視窗 ---
+            function openConfirmationModal(title, text, onConfirm) {
+                const modal = document.getElementById('confirm-modal');
+                const titleEl = document.getElementById('confirm-modal-title');
+                const textEl = document.getElementById('confirm-modal-text');
+                const confirmBtn = document.getElementById('confirm-modal-confirm-btn');
+
+                if (!modal || !titleEl || !textEl || !confirmBtn) return;
+
+                titleEl.textContent = title;
+                textEl.innerHTML = text; // 使用 innerHTML 以便未來支援簡單的 HTML 標籤
+
+                // 透過複製和取代按鈕來移除舊的事件監聽器，確保 onConfirm 不會重複綁定
+                const newConfirmBtn = confirmBtn.cloneNode(true);
+                confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+
+                newConfirmBtn.onclick = () => {
+                    if (typeof onConfirm === 'function') {
+                        onConfirm(); // 執行傳入的回呼函式
+                    }
+                    closeModal(modal);
+                };
+
+                openModal(modal);
+            }
+
+
+            function init() {
+                const initialUser = USERS.find(u => u.id === currentUserId);
+                updateSelectedUserDisplay(initialUser);
+                setupUserDropdowns();
+                renderBoard();
+                initEventListeners();
+                if(isMobile) handlePwaPrompt();
+                
+                window.addEventListener('resize', () => {
+                    const wasMobile = isMobile;
+                    isMobile = window.innerWidth < 768;
+                    if (wasMobile !== isMobile) { init(); }
+                });
+            }
+
+            init();
+        });
+    </script>
+</body>
+</html>
